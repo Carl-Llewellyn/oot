@@ -3184,6 +3184,13 @@ beginseg
 endseg
 
 beginseg
+    name "ovl_En_P2dummy"
+    compress
+    include "$(BUILD_DIR)/src/overlays/actors/ovl_En_P2dummy/z_en_p2dummy.o"
+    include "$(BUILD_DIR)/src/overlays/actors/ovl_En_P2dummy/ovl_En_P2dummy_reloc.o"
+endseg
+
+beginseg
     name "ovl_Object_Kankyo"
     compress
     include "$(BUILD_DIR)/src/overlays/actors/ovl_Object_Kankyo/z_object_kankyo.o"

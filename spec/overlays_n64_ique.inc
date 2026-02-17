@@ -3238,3 +3238,10 @@ beginseg
     include "$(BUILD_DIR)/src/overlays/actors/ovl_Obj_Warp2block/z_obj_warp2block.o"
     include "$(BUILD_DIR)/src/overlays/actors/ovl_Obj_Warp2block/ovl_Obj_Warp2block_reloc.o"
 endseg
+
+beginseg
+    name "ovl_En_P2dummy"
+    compress
+    include "$(BUILD_DIR)/src/overlays/actors/ovl_En_P2dummy/z_en_p2dummy.o"
+    include "$(BUILD_DIR)/src/overlays/actors/ovl_En_P2dummy/ovl_En_P2dummy_reloc.o"
+endseg
