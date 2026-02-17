@@ -129,7 +129,8 @@ typedef struct PlayState {
     /* 0x12428 */ char unk_12428[0x3];
     /* 0x1242B */ u8 viewpoint; // toggleable camera setting by shops or player. Is also equal to the bgCamIndex + 1
     /* 0x1242C */ SceneTableEntry* loadedScene;
-    /* 0x12430 */ char unk_12430[0xE8];
+    /* 0x12430 */ char unk_12430[0xE4];
+    /* 0x12514 */ Actor* p2DummyActor;
 } PlayState; // size = 0x12518
 
 extern Mtx D_01000000; // billboardMtx

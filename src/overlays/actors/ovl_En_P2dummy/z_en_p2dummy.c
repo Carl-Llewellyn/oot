@@ -6,9 +6,14 @@
 
 #include "z_en_p2dummy.h"
 
+#include "gfx.h"
+#include "gfx_setupdl.h"
 #include "play_state.h"
+#include "sys_matrix.h"
 
-#define FLAGS ACTOR_FLAG_UPDATE_CULLING_DISABLED
+#include "assets/objects/gameplay_keep/small_cube_model.h"
+
+#define FLAGS (ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED)
 
 void EnP2dummy_Init(Actor* thisx, PlayState* play);
 void EnP2dummy_Destroy(Actor* thisx, PlayState* play);
@@ -34,10 +39,23 @@ void EnP2dummy_Init(Actor* thisx, PlayState* play) {
 }
 
 void EnP2dummy_Destroy(Actor* thisx, PlayState* play) {
+    if (play->p2DummyActor == thisx) {
+        play->p2DummyActor = NULL;
+    }
 }
 
 void EnP2dummy_Update(Actor* thisx, PlayState* play) {
 }
 
 void EnP2dummy_Draw(Actor* thisx, PlayState* play) {
+    OPEN_DISPS(play->state.gfxCtx, "../z_en_p2dummy.c", 66);
+
+    Gfx_SetupDL_25Opa(play->state.gfxCtx);
+    gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 255, 48, 48, 255);
+    gDPSetEnvColor(POLY_OPA_DISP++, 64, 0, 0, 255);
+
+    MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx, "../z_en_p2dummy.c", 72);
+    gSPDisplayList(POLY_OPA_DISP++, gSmallCubeDL);
+
+    CLOSE_DISPS(play->state.gfxCtx, "../z_en_p2dummy.c", 75);
 }

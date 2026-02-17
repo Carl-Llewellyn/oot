@@ -268,6 +268,7 @@ void Play_Destroy(GameState* thisx) {
         Player_SetEquipmentData(this, player);
     }
 
+    this->p2DummyActor = NULL;
     func_80031C3C(&this->actorCtx, this);
     Interface_Destroy(this);
     KaleidoScopeCall_Destroy(this);
@@ -503,6 +504,7 @@ void Play_Init(GameState* thisx) {
 #endif
 
     Actor_InitContext(this, &this->actorCtx, this->playerEntry);
+    this->p2DummyActor = NULL;
 
     // Busyloop until the room loads
     while (!Room_ProcessRoomRequest(this, &this->roomCtx)) {
@@ -519,6 +521,10 @@ void Play_Init(GameState* thisx) {
         PRINTF("player has start camera ID (" VT_FGCOL(BLUE) "%d" VT_RST ")\n", playerStartBgCamIndex);
         Camera_RequestBgCam(&this->mainCamera, playerStartBgCamIndex);
     }
+
+    this->p2DummyActor = Actor_Spawn(&this->actorCtx, this, ACTOR_EN_P2DUMMY, player->actor.world.pos.x + 40.0f,
+                                     player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.x,
+                                     player->actor.shape.rot.y, player->actor.shape.rot.z, 0);
 
     if (R_SCENE_CAM_TYPE == SCENE_CAM_TYPE_FIXED_TOGGLE_VIEWPOINT) {
         this->viewpoint = VIEWPOINT_PIVOT;
