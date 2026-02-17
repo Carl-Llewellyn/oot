@@ -23,6 +23,7 @@
 #include "sys_matrix.h"
 #include "sys_debug_controller.h"
 #include "sys_freeze.h"
+#include "file_select_state.h"
 #include "title_setup_state.h"
 #include "versions.h"
 #include "actor.h"
@@ -189,9 +190,9 @@ void ConsoleLogo_Main(GameState* thisx) {
     if (this->exit) {
         gSaveContext.seqId = (u8)NA_BGM_DISABLED;
         gSaveContext.natureAmbienceId = 0xFF;
-        gSaveContext.gameMode = GAMEMODE_TITLE_SCREEN;
+        gSaveContext.gameMode = GAMEMODE_FILE_SELECT;
         this->state.running = false;
-        SET_NEXT_GAMESTATE(&this->state, TitleSetup_Init, TitleSetupState);
+        SET_NEXT_GAMESTATE(&this->state, FileSelect_Init, FileSelectState);
     }
 
     CLOSE_DISPS(this->state.gfxCtx, "../z_title.c", 541);
