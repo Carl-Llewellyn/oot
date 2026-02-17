@@ -6,6 +6,7 @@
 
 #include "z_en_p2dummy.h"
 
+#include "controller.h"
 #include "gfx.h"
 #include "gfx_setupdl.h"
 #include "play_state.h"
@@ -45,8 +46,17 @@ void EnP2dummy_Destroy(Actor* thisx, PlayState* play) {
 }
 
 void EnP2dummy_Update(Actor* thisx, PlayState* play) {
+    f32 moveScale = 0.1f;
+
     thisx->room = play->roomCtx.curRoom.num;
     thisx->focus.pos = thisx->world.pos;
+    thisx->shape.rot.y += play->p2Input.cur.stick_x * 0x40;
+    thisx->world.pos.x += play->p2Input.cur.stick_x * moveScale;
+    thisx->world.pos.z -= play->p2Input.cur.stick_y * moveScale;
+
+    if (CHECK_BTN_ANY(play->p2Input.cur.button, BTN_A)) {
+        thisx->shape.rot.x += 0x200;
+    }
 }
 
 void EnP2dummy_Draw(Actor* thisx, PlayState* play) {

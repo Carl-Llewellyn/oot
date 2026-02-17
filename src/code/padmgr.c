@@ -364,8 +364,7 @@ void PadMgr_HandleRetrace(PadMgr* padMgr) {
     osContGetReadData(padMgr->pads);
 
 #if !DEBUG_FEATURES
-    // Clear controllers 2 and 4
-    bzero(&padMgr->pads[1], sizeof(OSContPad));
+    // Keep controller 2 active for local co-op input.
     bzero(&padMgr->pads[3], sizeof(OSContPad));
 #endif
 

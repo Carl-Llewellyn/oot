@@ -70,6 +70,7 @@ Input* D_8012D1F8 = NULL;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
+static void Play_UpdateP2InputState(PlayState* this);
 
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
 // For example, it can be used to trace the play state execution at a high level.
@@ -114,6 +115,10 @@ static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player) {
     }
 
     return p2DummyActor;
+}
+
+static void Play_UpdateP2InputState(PlayState* this) {
+    this->p2Input = this->state.input[1];
 }
 
 /**
@@ -519,6 +524,7 @@ void Play_Init(GameState* thisx) {
 #endif
 
     Actor_InitContext(this, &this->actorCtx, this->playerEntry);
+    PadUtils_Init(&this->p2Input);
     this->p2DummyActor = NULL;
 
     // Busyloop until the room loads
@@ -993,6 +999,7 @@ void Play_Update(PlayState* this) {
 
                 this->gameplayFrames++;
                 Rumble_SetUpdateEnabled(true);
+                Play_UpdateP2InputState(this);
 
                 if (this->actorCtx.freezeFlashTimer && (this->actorCtx.freezeFlashTimer-- < 5)) {
                     PRINTF("FINISH=%d\n", this->actorCtx.freezeFlashTimer);

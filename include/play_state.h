@@ -52,6 +52,8 @@ typedef struct SceneSequences {
     /* 0x01 */ u8 natureAmbienceId;
 } SceneSequences; // size = 0x2
 
+typedef Input P2InputState;
+
 typedef struct PlayState {
     /* 0x00000 */ GameState state;
     /* 0x000A4 */ s16 sceneId;
@@ -129,7 +131,8 @@ typedef struct PlayState {
     /* 0x12428 */ char unk_12428[0x3];
     /* 0x1242B */ u8 viewpoint; // toggleable camera setting by shops or player. Is also equal to the bgCamIndex + 1
     /* 0x1242C */ SceneTableEntry* loadedScene;
-    /* 0x12430 */ char unk_12430[0xE4];
+    /* 0x12430 */ char unk_12430[0xCC];
+    /* 0x124FC */ P2InputState p2Input;
     /* 0x12514 */ Actor* p2DummyActor;
 } PlayState; // size = 0x12518
 
