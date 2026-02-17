@@ -220,14 +220,16 @@ static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player) {
     p2DummyActor =
         Actor_Spawn(&this->actorCtx, this, ACTOR_PLAYER, player->actor.world.pos.x, player->actor.world.pos.y,
                     player->actor.world.pos.z, player->actor.shape.rot.x, player->actor.shape.rot.y,
-                    player->actor.shape.rot.z, PLAYER_PARAMS(PLAYER_START_MODE_NOTHING, PLAYER_START_BG_CAM_DEFAULT));
+                    player->actor.shape.rot.z, PLAYER_PARAMS(PLAYER_START_MODE_IDLE, PLAYER_START_BG_CAM_DEFAULT));
 
     if (p2DummyActor != NULL) {
         Actor_ChangeCategory(this, &this->actorCtx, p2DummyActor, ACTORCAT_NPC);
         p2DummyActor->category = ACTORCAT_NPC;
         p2DummyActor->init = NULL;
         p2DummyActor->update = Play_P2PlayerUpdate;
-        p2DummyActor->draw = player->actor.draw;
+        if (p2DummyActor->draw == NULL) {
+            p2DummyActor->draw = player->actor.draw;
+        }
         p2DummyActor->room = this->roomCtx.curRoom.num;
         Play_P2PlayerPostSpawnSetup(p2DummyActor, this);
     }
