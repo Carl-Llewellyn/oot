@@ -69,6 +69,7 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 Input* D_8012D1F8 = NULL;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
+static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
 
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
 // For example, it can be used to trace the play state execution at a high level.
@@ -99,6 +100,20 @@ void Play_SetViewpoint(PlayState* this, s16 viewpoint) {
     }
 
     Play_RequestViewpointBgCam(this);
+}
+
+static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player) {
+    Actor* p2DummyActor;
+
+    p2DummyActor = Actor_Spawn(&this->actorCtx, this, ACTOR_EN_P2DUMMY, player->actor.world.pos.x, player->actor.world.pos.y,
+                               player->actor.world.pos.z, player->actor.shape.rot.x, player->actor.shape.rot.y,
+                               player->actor.shape.rot.z, 0);
+
+    if (p2DummyActor != NULL) {
+        p2DummyActor->room = this->roomCtx.curRoom.num;
+    }
+
+    return p2DummyActor;
 }
 
 /**
@@ -522,9 +537,7 @@ void Play_Init(GameState* thisx) {
         Camera_RequestBgCam(&this->mainCamera, playerStartBgCamIndex);
     }
 
-    this->p2DummyActor = Actor_Spawn(&this->actorCtx, this, ACTOR_EN_P2DUMMY, player->actor.world.pos.x + 40.0f,
-                                     player->actor.world.pos.y, player->actor.world.pos.z, player->actor.shape.rot.x,
-                                     player->actor.shape.rot.y, player->actor.shape.rot.z, 0);
+    this->p2DummyActor = Play_SpawnP2Dummy(this, player);
 
     if (R_SCENE_CAM_TYPE == SCENE_CAM_TYPE_FIXED_TOGGLE_VIEWPOINT) {
         this->viewpoint = VIEWPOINT_PIVOT;
@@ -995,6 +1008,11 @@ void Play_Update(PlayState* this) {
                 } else {
                     PLAY_LOG(3606);
                     Room_ProcessRoomRequest(this, &this->roomCtx);
+
+                    if ((this->roomCtx.status == 0) && (this->roomCtx.curRoom.segment != NULL) &&
+                        (this->p2DummyActor == NULL)) {
+                        this->p2DummyActor = Play_SpawnP2Dummy(this, GET_PLAYER(this));
+                    }
 
                     PLAY_LOG(3612);
                     CollisionCheck_AT(this, &this->colChkCtx);

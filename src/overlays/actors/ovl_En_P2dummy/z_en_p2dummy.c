@@ -45,6 +45,8 @@ void EnP2dummy_Destroy(Actor* thisx, PlayState* play) {
 }
 
 void EnP2dummy_Update(Actor* thisx, PlayState* play) {
+    thisx->room = play->roomCtx.curRoom.num;
+    thisx->focus.pos = thisx->world.pos;
 }
 
 void EnP2dummy_Draw(Actor* thisx, PlayState* play) {
