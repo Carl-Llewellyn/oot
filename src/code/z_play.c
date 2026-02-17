@@ -74,6 +74,8 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 #endif
 
 Input* D_8012D1F8 = NULL;
+s32 LOCAL_PLAYER = true;
+s32 NETWORK_PLAYER = false;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
@@ -108,7 +110,33 @@ static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play) {
     play->func_11D54(player, play);
 }
 
+static void Play_SyncP2StateFromP1(Player* p2Player, PlayState* play) {
+    Player* p1Player = GET_PLAYER(play);
+
+    if ((p2Player == NULL) || (p1Player == NULL) || (p2Player == p1Player)) {
+        return;
+    }
+
+    if (LOCAL_PLAYER) {
+        p2Player->currentTunic = p1Player->currentTunic;
+        p2Player->currentShield = p1Player->currentShield;
+        p2Player->currentBoots = p1Player->currentBoots;
+        p2Player->prevBoots = p1Player->prevBoots;
+        p2Player->heldItemButton = p1Player->heldItemButton;
+        p2Player->heldItemAction = p1Player->heldItemAction;
+        p2Player->heldItemId = p1Player->heldItemId;
+        p2Player->itemAction = p1Player->itemAction;
+        p2Player->modelGroup = p1Player->modelGroup;
+        p2Player->nextModelGroup = p1Player->nextModelGroup;
+        p2Player->currentMask = p1Player->currentMask;
+    } else if (NETWORK_PLAYER) {
+        //put incoming inventory state packet application here
+        //.. probably
+    }
+}
+
 static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
+    Player* p2Player = (Player*)thisx;
     Input inputBackup;
     Input p2InputRouted;
 
@@ -118,8 +146,9 @@ static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
     }
 
     p2InputRouted = play->p2Input;
+    Play_SyncP2StateFromP1(p2Player, play);
 
-    // Keep P1 as owner of camera/UI style controls while still giving P2 full movement/action simulation.
+    //Keep P1 as owner of camera/UI style controls while still giving P2 full movement/action simulation.
     p2InputRouted.cur.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_R | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
     p2InputRouted.press.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_R | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
 
