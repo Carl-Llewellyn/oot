@@ -23,6 +23,7 @@
 #include "segmented_address.h"
 #include "sequence.h"
 #include "sfx.h"
+#include "sys_math.h"
 #include "sys_math3d.h"
 #include "sys_matrix.h"
 #include "terminal.h"
@@ -35,8 +36,12 @@
 #include "translation.h"
 #include "versions.h"
 #include "z_actor_dlftbls.h"
+#include "z_lib.h"
+#include "z_math.h"
 #include "zelda_arena.h"
 #include "audio.h"
+#include "animation.h"
+#include "camera.h"
 #include "cutscene_flags.h"
 #include "debug_display.h"
 #include "effect.h"
@@ -46,6 +51,8 @@
 #include "player.h"
 #include "save.h"
 #include "vis.h"
+
+#include "assets/objects/gameplay_keep/player_anim_headers.h"
 
 #pragma increment_block_number "gc-eu:224 gc-eu-mq:224 gc-jp:224 gc-jp-ce:224 gc-jp-mq:224 gc-us:224 gc-us-mq:224" \
                                "ique-cn:224 ntsc-1.0:240 ntsc-1.1:240 ntsc-1.2:240 pal-1.0:240 pal-1.1:240"
@@ -71,6 +78,8 @@ Input* D_8012D1F8 = NULL;
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
 static void Play_UpdateP2InputState(PlayState* this);
+static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play);
+static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play);
 
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
 // For example, it can be used to trace the play state execution at a high level.
@@ -87,6 +96,108 @@ static void Play_UpdateP2InputState(PlayState* this);
 
 void Play_RequestViewpointBgCam(PlayState* this) {
     Camera_RequestBgCam(GET_ACTIVE_CAM(this), this->viewpoint - 1);
+}
+
+typedef enum PlayP2MoveState {
+    PLAY_P2_MOVE_IDLE = 0,
+    PLAY_P2_MOVE_WALK = 1,
+    PLAY_P2_MOVE_RUN = 2,
+    PLAY_P2_MOVE_AIR = 3
+} PlayP2MoveState;
+
+static void Play_P2PlayerSetAnim(Player* player, PlayState* play, s32 moveState) {
+    LinkAnimationHeader* anim;
+    f32 playSpeed;
+
+    if (moveState == PLAY_P2_MOVE_RUN) {
+        anim = &gPlayerAnim_link_normal_run;
+        playSpeed = player->actor.speed / 6.0f;
+    } else if (moveState == PLAY_P2_MOVE_WALK) {
+        anim = &gPlayerAnim_link_normal_walk;
+        playSpeed = player->actor.speed / 3.0f;
+    } else {
+        anim = &gPlayerAnim_link_normal_wait;
+        playSpeed = 1.0f;
+    }
+
+    if (player->skelAnime.animation != anim) {
+        LinkAnimation_PlayLoopSetSpeed(play, &player->skelAnime, anim, playSpeed);
+    } else {
+        player->skelAnime.playSpeed = playSpeed;
+    }
+}
+
+static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play) {
+    Player* player = (Player*)thisx;
+
+    thisx->flags |= ACTOR_FLAG_UPDATE_CULLING_DISABLED | ACTOR_FLAG_DRAW_CULLING_DISABLED;
+    thisx->flags &= ~(ACTOR_FLAG_HOSTILE | ACTOR_FLAG_TALK | ACTOR_FLAG_ATTENTION_ENABLED);
+    thisx->room = play->roomCtx.curRoom.num;
+    play->func_11D54(player, play);
+}
+
+static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
+    Player* player = (Player*)thisx;
+    Input* p2Input = &play->p2Input;
+    Camera* activeCam = GET_ACTIVE_CAM(play);
+    s8 stickX = p2Input->cur.stick_x;
+    s8 stickY = p2Input->cur.stick_y;
+    f32 stickMag = sqrtf((f32)(stickX * stickX + stickY * stickY)) / 64.0f;
+    f32 targetSpeed;
+    s32 moveState;
+    f32 moveX;
+    f32 moveZ;
+    s16 targetYaw;
+    s16 camYaw;
+
+    thisx->room = play->roomCtx.curRoom.num;
+
+    if (stickMag > 1.0f) {
+        stickMag = 1.0f;
+    }
+
+    if (stickMag > 0.15f) {
+        targetSpeed = (stickMag > 0.65f) ? (6.0f * stickMag) : (3.0f * stickMag);
+        if (CHECK_BTN_ANY(p2Input->cur.button, BTN_B)) {
+            targetSpeed += 1.0f;
+        }
+
+        camYaw = Camera_GetInputDirYaw(activeCam);
+        moveX = Math_CosS(camYaw) * stickX + Math_SinS(camYaw) * stickY;
+        moveZ = -Math_SinS(camYaw) * stickX + Math_CosS(camYaw) * stickY;
+        targetYaw = Math_Atan2S(moveX, moveZ);
+        Math_SmoothStepToS(&thisx->shape.rot.y, targetYaw, 6, 0x1000, 0);
+    } else {
+        targetSpeed = 0.0f;
+    }
+
+    thisx->world.rot.y = thisx->shape.rot.y;
+    Math_SmoothStepToF(&thisx->speed, targetSpeed, 0.35f, 0.8f, 0.01f);
+
+    if (CHECK_BTN_ANY(p2Input->press.button, BTN_A) && (thisx->bgCheckFlags & BGCHECKFLAG_GROUND)) {
+        thisx->velocity.y = 7.0f;
+    }
+
+    Actor_MoveXZGravity(thisx);
+    Actor_UpdateBgCheckInfo(play, thisx, 26.0f, 18.0f, 40.0f,
+                            UPDBGCHECKINFO_FLAG_0 | UPDBGCHECKINFO_FLAG_2 | UPDBGCHECKINFO_FLAG_3 |
+                                UPDBGCHECKINFO_FLAG_4);
+
+    if (!(thisx->bgCheckFlags & BGCHECKFLAG_GROUND)) {
+        moveState = PLAY_P2_MOVE_AIR;
+    } else if (thisx->speed < 0.2f) {
+        moveState = PLAY_P2_MOVE_IDLE;
+    } else if (thisx->speed < 4.0f) {
+        moveState = PLAY_P2_MOVE_WALK;
+    } else {
+        moveState = PLAY_P2_MOVE_RUN;
+    }
+
+    Play_P2PlayerSetAnim(player, play, moveState);
+    LinkAnimation_Update(play, &player->skelAnime);
+
+    thisx->focus.pos = thisx->world.pos;
+    thisx->focus.pos.y += 30.0f;
 }
 
 void Play_SetViewpoint(PlayState* this, s16 viewpoint) {
@@ -106,12 +217,19 @@ void Play_SetViewpoint(PlayState* this, s16 viewpoint) {
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player) {
     Actor* p2DummyActor;
 
-    p2DummyActor = Actor_Spawn(&this->actorCtx, this, ACTOR_EN_P2DUMMY, player->actor.world.pos.x, player->actor.world.pos.y,
-                               player->actor.world.pos.z, player->actor.shape.rot.x, player->actor.shape.rot.y,
-                               player->actor.shape.rot.z, 0);
+    p2DummyActor =
+        Actor_Spawn(&this->actorCtx, this, ACTOR_PLAYER, player->actor.world.pos.x, player->actor.world.pos.y,
+                    player->actor.world.pos.z, player->actor.shape.rot.x, player->actor.shape.rot.y,
+                    player->actor.shape.rot.z, PLAYER_PARAMS(PLAYER_START_MODE_NOTHING, PLAYER_START_BG_CAM_DEFAULT));
 
     if (p2DummyActor != NULL) {
+        Actor_ChangeCategory(this, &this->actorCtx, p2DummyActor, ACTORCAT_NPC);
+        p2DummyActor->category = ACTORCAT_NPC;
+        p2DummyActor->init = NULL;
+        p2DummyActor->update = Play_P2PlayerUpdate;
+        p2DummyActor->draw = player->actor.draw;
         p2DummyActor->room = this->roomCtx.curRoom.num;
+        Play_P2PlayerPostSpawnSetup(p2DummyActor, this);
     }
 
     return p2DummyActor;
@@ -1015,6 +1133,10 @@ void Play_Update(PlayState* this) {
                 } else {
                     PLAY_LOG(3606);
                     Room_ProcessRoomRequest(this, &this->roomCtx);
+
+                    if ((this->p2DummyActor != NULL) && (this->p2DummyActor->update == NULL)) {
+                        this->p2DummyActor = NULL;
+                    }
 
                     if ((this->roomCtx.status == 0) && (this->roomCtx.curRoom.segment != NULL) &&
                         (this->p2DummyActor == NULL)) {
