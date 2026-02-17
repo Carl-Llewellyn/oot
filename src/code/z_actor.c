@@ -1861,8 +1861,17 @@ u32 Actor_HasParent(Actor* actor, PlayState* play) {
  *
  * @return true If the player actor is capable of accepting the offer.
  */
-s32 Actor_OfferGetItem(Actor* actor, PlayState* play, s32 getItemId, f32 xzRange, f32 yRange) {
-    Player* player = GET_PLAYER(play);
+static s32 Actor_OfferGetItemToPlayer(Actor* actor, Player* player, s32 getItemId, f32 xzRange, f32 yRange) {
+    f32 xzDist;
+    f32 yDist;
+
+    if (player == NULL) {
+        return false;
+    }
+
+    if (player->actor.update == NULL) {
+        return false;
+    }
 
     if (!(player->stateFlags1 &
           (PLAYER_STATE1_DEAD | PLAYER_STATE1_CHARGING_SPIN_ATTACK | PLAYER_STATE1_13 | PLAYER_STATE1_14 |
@@ -1871,8 +1880,11 @@ s32 Actor_OfferGetItem(Actor* actor, PlayState* play, s32 getItemId, f32 xzRange
         if ((((player->heldActor != NULL) || (player->talkActor == actor)) && (getItemId > GI_NONE) &&
              (getItemId < GI_MAX)) ||
             (!(player->stateFlags1 & (PLAYER_STATE1_CARRYING_ACTOR | PLAYER_STATE1_29)))) {
-            if ((actor->xzDistToPlayer < xzRange) && (fabsf(actor->yDistToPlayer) < yRange)) {
-                s16 yawDiff = actor->yawTowardsPlayer - player->actor.shape.rot.y;
+            xzDist = Math_Vec3f_DistXZ(&actor->world.pos, &player->actor.world.pos);
+            yDist = actor->world.pos.y - player->actor.world.pos.y;
+
+            if ((xzDist < xzRange) && (fabsf(yDist) < yRange)) {
+                s16 yawDiff = Math_Vec3f_Yaw(&actor->world.pos, &player->actor.world.pos) - player->actor.shape.rot.y;
                 s32 absYawDiff = ABS(yawDiff);
 
                 if ((getItemId != GI_NONE) || (player->getItemDirection < absYawDiff)) {
@@ -1886,6 +1898,22 @@ s32 Actor_OfferGetItem(Actor* actor, PlayState* play, s32 getItemId, f32 xzRange
     }
 
     return false;
+}
+
+s32 Actor_OfferGetItem(Actor* actor, PlayState* play, s32 getItemId, f32 xzRange, f32 yRange) {
+    Player* player1 = GET_PLAYER(play);
+    Player* player2 = NULL;
+    s32 offeredPlayer1;
+    s32 offeredPlayer2;
+
+    if ((play->p2DummyActor != NULL) && (play->p2DummyActor->id == ACTOR_PLAYER)) {
+        player2 = (Player*)play->p2DummyActor;
+    }
+
+    offeredPlayer1 = Actor_OfferGetItemToPlayer(actor, player1, getItemId, xzRange, yRange);
+    offeredPlayer2 = Actor_OfferGetItemToPlayer(actor, player2, getItemId, xzRange, yRange);
+
+    return offeredPlayer1 || offeredPlayer2;
 }
 
 s32 Actor_OfferGetItemNearby(Actor* actor, PlayState* play, s32 getItemId) {

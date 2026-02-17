@@ -118,6 +118,8 @@ static void Play_SyncP2StateFromP1(Player* p2Player, PlayState* play) {
     }
 
     if (LOCAL_PLAYER) {
+        //I think this is all of them
+        //no idea how to do the horse lmao
         p2Player->currentTunic = p1Player->currentTunic;
         p2Player->currentShield = p1Player->currentShield;
         p2Player->currentBoots = p1Player->currentBoots;
