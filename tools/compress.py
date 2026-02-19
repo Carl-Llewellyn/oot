@@ -54,6 +54,8 @@ def compress_rom(
     rom_data: memoryview,
     dmadata_start: int,
     compress_entries_indices: set[int],
+    priority_entries_indices: list[int],
+    keep_prefix_count: int,
     compression_format: str,
     pad_to_multiple_of: int,
     fill_padding_bytes: bool,
@@ -63,6 +65,8 @@ def compress_rom(
     rom_data: the uncompressed rom data
     dmadata_start: the offset in the rom where the dmadata starts
     compress_entries_indices: the indices in the dmadata of the segments that should be compressed
+    priority_entries_indices: dmadata indices to place earlier in physical ROM order
+    keep_prefix_count: number of initial dmadata entries to keep fixed at the front
     compression_format: the compression format to use
     pad_to_multiple_of: pad the compressed rom to a multiple of this size, in bytes
     fill_padding_bytes: fill the padding bytes with a 0x00 0x01 0x02 ... pattern instead of zeros
@@ -160,9 +164,28 @@ def compress_rom(
 
     print("Putting together the compressed rom...")
 
+    # Build packing order:
+    # 1) Keep a fixed prefix untouched (boot-critical region).
+    # 2) Relocate selected entries right after that prefix.
+    # 3) Append all remaining entries in original order.
+    total_segments = len(compressed_rom_segments)
+    keep_prefix_count = max(0, min(keep_prefix_count, total_segments))
+    packing_indices: list[int] = list(range(keep_prefix_count))
+    seen_indices: set[int] = set(packing_indices)
+    for index in priority_entries_indices:
+        if index < keep_prefix_count:
+            continue
+        if 0 <= index < total_segments and index not in seen_indices:
+            packing_indices.append(index)
+            seen_indices.add(index)
+    for index in range(keep_prefix_count, total_segments):
+        if index not in seen_indices:
+            packing_indices.append(index)
+            seen_indices.add(index)
+
     # Put together the compressed rom
     compressed_rom_size = sum(
-        align(len(segment.data)) for segment in compressed_rom_segments
+        align(len(compressed_rom_segments[index].data)) for index in packing_indices
     )
     compressed_rom_size_padded = (
         (compressed_rom_size + pad_to_multiple_of - 1)
@@ -171,8 +194,10 @@ def compress_rom(
     )
     compressed_rom_data = memoryview(bytearray(compressed_rom_size_padded))
     compressed_rom_dma_entries: list[dmadata.DmaEntry] = []
+    packed_locations: list[tuple[int, int]] = [(-1, -1)] * total_segments
     rom_offset = 0
-    for segment in compressed_rom_segments:
+    for index in packing_indices:
+        segment = compressed_rom_segments[index]
         assert segment.data is not None
 
         segment_rom_start = rom_offset
@@ -183,7 +208,10 @@ def compress_rom(
         compressed_rom_data[segment_rom_start:i] = segment.data
 
         rom_offset = segment_rom_end
+        packed_locations[index] = (segment_rom_start, segment_rom_end)
 
+    for index, segment in enumerate(compressed_rom_segments):
+        segment_rom_start, segment_rom_end = packed_locations[index]
         if segment.is_syms:
             segment_rom_start = 0xFFFFFFFF
             segment_rom_end = 0xFFFFFFFF
@@ -212,6 +240,28 @@ def compress_rom(
         offset += dmadata.DmaEntry.SIZE_BYTES
 
     return compressed_rom_data
+
+
+def parse_indices(indices_str: str) -> set[int]:
+    indices = set()
+    for index_range_str in indices_str.split(","):
+        index_range_str = index_range_str.strip()
+        if not index_range_str:
+            continue
+        index_range_ends_str = index_range_str.split("-")
+        assert len(index_range_ends_str) <= 2, (
+            index_range_ends_str,
+            index_range_str,
+            indices_str,
+        )
+        index_range_ends = [int(v_str) for v_str in index_range_ends_str]
+        if len(index_range_ends) == 1:
+            indices.add(index_range_ends[0])
+        else:
+            assert len(index_range_ends) == 2
+            index_range_first, index_range_last = index_range_ends
+            indices.update(range(index_range_first, index_range_last + 1))
+    return indices
 
 
 def main():
@@ -249,6 +299,22 @@ def main():
         ),
     )
     parser.add_argument(
+        "--priority-indices",
+        dest="priority_indices",
+        default="",
+        help=(
+            "dmadata indices to relocate earlier in ROM order."
+            " Same syntax as --compress ranges (e.g. '1,4,7-9')."
+        ),
+    )
+    parser.add_argument(
+        "--keep-prefix-count",
+        dest="keep_prefix_count",
+        type=int,
+        default=0,
+        help="number of leading dmadata entries to keep fixed before relocation",
+    )
+    parser.add_argument(
         "--format",
         dest="format",
         choices=COMPRESSION_METHODS.keys(),
@@ -284,26 +350,11 @@ def main():
 
     dmadata_start = args.dmadata_start
 
-    compress_ranges_str: str = args.compress_ranges
-    compress_entries_indices = set()
-    for compress_range_str in compress_ranges_str.split(","):
-        compress_range_ends_str = compress_range_str.split("-")
-        assert len(compress_range_ends_str) <= 2, (
-            compress_range_ends_str,
-            compress_range_str,
-            compress_ranges_str,
-        )
-        compress_range_ends = [int(v_str) for v_str in compress_range_ends_str]
-        if len(compress_range_ends) == 1:
-            compress_entries_indices.add(compress_range_ends[0])
-        else:
-            assert len(compress_range_ends) == 2
-            compress_range_first, compress_range_last = compress_range_ends
-            compress_entries_indices.update(
-                range(compress_range_first, compress_range_last + 1)
-            )
+    compress_entries_indices = parse_indices(args.compress_ranges)
+    priority_entries_indices = sorted(parse_indices(args.priority_indices))
 
     compression_format = args.format
+    keep_prefix_count = args.keep_prefix_count
     pad_to_multiple_of = args.pad_to
     fill_padding_bytes = args.fill_padding_bytes
     n_threads = args.n_threads
@@ -313,6 +364,8 @@ def main():
         memoryview(in_rom_data),
         dmadata_start,
         compress_entries_indices,
+        priority_entries_indices,
+        keep_prefix_count,
         compression_format,
         pad_to_multiple_of,
         fill_padding_bytes,

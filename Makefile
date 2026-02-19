@@ -408,6 +408,10 @@ ELF      := $(ROM:.z64=.elf)
 MAP      := $(ROM:.z64=.map)
 LDSCRIPT := $(ROM:.z64=.ld)
 
+RELOCATE ?= 0
+RELOCATE_KEEP_PREFIX_COUNT ?= 128
+RELOCATE_PRIORITY_NAMES ?= nintendo_rogo_static,title_static,z_select_static
+
 # description of ROM segments
 SPEC := spec/spec
 SPEC_INCLUDES := $(wildcard spec/*.inc)
@@ -820,11 +824,16 @@ else
   CIC = 6105
 endif
 
+ifneq ($(RELOCATE),0)
+  RELOCATE_COMPRESS_DEPS := $(BUILD_DIR)/relocate_priority_indices.txt
+  RELOCATE_COMPRESS_ARGS := --priority-indices `cat $(BUILD_DIR)/relocate_priority_indices.txt` --keep-prefix-count $(RELOCATE_KEEP_PREFIX_COUNT)
+endif
+
 $(ROM): $(ELF)
 	$(ELF2ROM) -cic $(CIC) $< $@
 
-$(ROMC): $(ROM) $(ELF) $(BUILD_DIR)/compress_ranges.txt
-	$(PYTHON) tools/compress.py --in $(ROM) --out $@ --dmadata-start `./tools/dmadata_start.sh $(NM) $(ELF)` --compress `cat $(BUILD_DIR)/compress_ranges.txt` --threads $(N_THREADS) $(COMPRESS_ARGS)
+$(ROMC): $(ROM) $(ELF) $(BUILD_DIR)/compress_ranges.txt $(RELOCATE_COMPRESS_DEPS)
+	$(PYTHON) tools/compress.py --in $(ROM) --out $@ --dmadata-start `./tools/dmadata_start.sh $(NM) $(ELF)` --compress `cat $(BUILD_DIR)/compress_ranges.txt` --threads $(N_THREADS) $(COMPRESS_ARGS) $(RELOCATE_COMPRESS_ARGS)
 	$(PYTHON) -m ipl3checksum sum --cic $(CIC) --update $@
 
 COM_PLUGIN := tools/com-plugin/common-plugin.so
@@ -950,6 +959,9 @@ DEP_FILES += $(BUILD_DIR)/src/code/z_message.d $(BUILD_DIR)/src/code/z_game_over
 
 $(BUILD_DIR)/dmadata_table_spec.h $(BUILD_DIR)/compress_ranges.txt: $(BUILD_DIR)/spec
 	$(MKDMADATA) $< $(BUILD_DIR)/dmadata_table_spec.h $(BUILD_DIR)/compress_ranges.txt
+
+$(BUILD_DIR)/relocate_priority_indices.txt: $(BUILD_DIR)/dmadata_table_spec.h tools/dmadata_priority_indices.py
+	$(PYTHON) tools/dmadata_priority_indices.py --spec $(BUILD_DIR)/dmadata_table_spec.h --names "$(RELOCATE_PRIORITY_NAMES)" --out $@
 
 # Dependencies for files that may include the dmadata header automatically generated from the spec file
 $(BUILD_DIR)/src/boot/z_std_dma.o: $(BUILD_DIR)/dmadata_table_spec.h
