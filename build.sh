@@ -8,6 +8,8 @@ VERSION="${VERSION:-ntsc-1.2}"
 REGION="${REGION:-US}"
 COMPARE="${COMPARE:-0}"
 JOBS="${JOBS:-$(nproc)}"
+RELOCATE="${RELOCATE:-1}"
+CUTOFF="${CUTOFF:-0xFD0000}"
 
 CLEAN=0
 
@@ -22,6 +24,8 @@ Environment overrides:
   REGION    (default: US)
   COMPARE   (default: 0)
   JOBS      (default: nproc)
+  RELOCATE  (default: 1)
+  CUTOFF    (default: 0xFD0000)
 EOF
 }
 
@@ -44,9 +48,24 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$CLEAN" -eq 1 ]]; then
-    docker compose run --rm oot make VERSION="$VERSION" REGION="$REGION" clean
+    docker compose run --rm oot make VERSION="$VERSION" REGION="$REGION" RELOCATE="$RELOCATE" clean
 fi
 
-docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" setup
-docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" COMPARE="$COMPARE"
-docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" COMPARE="$COMPARE" compress
+if [[ "$RELOCATE" != "0" ]]; then
+    docker compose run --rm oot bash -lc "cd /oot && rm -f build/${VERSION}/relocate_priority_indices.txt"
+fi
+
+docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" RELOCATE="$RELOCATE" setup
+docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" COMPARE="$COMPARE" RELOCATE="$RELOCATE"
+docker compose run --rm oot make -j"$JOBS" VERSION="$VERSION" REGION="$REGION" COMPARE="$COMPARE" RELOCATE="$RELOCATE" compress
+
+if [[ "$RELOCATE" != "0" ]]; then
+    docker compose run --rm oot bash -lc "cd /oot && \
+        DMADATA_START=\$(./tools/dmadata_start.sh mips-linux-gnu-nm build/${VERSION}/oot-${VERSION}.elf) && \
+        python3 tools/check_relocate_cutoff.py \
+            --rom build/${VERSION}/oot-${VERSION}-compressed.z64 \
+            --spec build/${VERSION}/dmadata_table_spec.h \
+            --indices build/${VERSION}/relocate_priority_indices.txt \
+            --dmadata-start \"\$DMADATA_START\" \
+            --cutoff ${CUTOFF}"
+fi
