@@ -50,6 +50,7 @@
 #include "play_state.h"
 #include "player.h"
 #include "save.h"
+#include "ss_sram.h"
 #include "vis.h"
 
 #include "assets/objects/gameplay_keep/player_anim_headers.h"
@@ -82,7 +83,48 @@ static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
 static void Play_UpdateP2InputState(PlayState* this);
 static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play);
 static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play);
+static void Play_SendOotProbePacket(PlayState* this);
 static ActorFunc sP2NativePlayerUpdate = NULL;
+
+#define OOT_PROBE_SRAM_ADDR OS_K1_TO_PHYSICAL(0xA8007A00)
+#define OOT_PROBE_PACKET_SIZE 0x20
+
+static void Play_WriteBe32(u8* dst, u32 value) {
+    dst[0] = (u8)(value >> 24);
+    dst[1] = (u8)(value >> 16);
+    dst[2] = (u8)(value >> 8);
+    dst[3] = (u8)value;
+}
+
+static u32 Play_FloatToU32(f32 value) {
+    union {
+        f32 f;
+        u32 u;
+    } conv;
+
+    conv.f = value;
+    return conv.u;
+}
+
+static void Play_SendOotProbePacket(PlayState* this) {
+    Player* player = GET_PLAYER(this);
+    u8 packet[OOT_PROBE_PACKET_SIZE];
+    u8 echoBuf[OOT_PROBE_PACKET_SIZE];
+
+    if (player == NULL) {
+        return;
+    }
+
+    bzero(packet, sizeof(packet));
+    packet[0] = 'O';
+    packet[1] = 'O';
+    packet[2] = 'T';
+    Play_WriteBe32(&packet[4], Play_FloatToU32(player->actor.world.pos.x));
+
+    // Write packet via PI DMA, then issue a PI DMA read so emulator read-hook can intercept.
+    SsSram_ReadWrite(OOT_PROBE_SRAM_ADDR, packet, OOT_PROBE_PACKET_SIZE, OS_WRITE);
+    SsSram_ReadWrite(OOT_PROBE_SRAM_ADDR, echoBuf, OOT_PROBE_PACKET_SIZE, OS_READ);
+}
 
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
 // For example, it can be used to trace the play state execution at a high level.
@@ -1083,6 +1125,7 @@ void Play_Update(PlayState* this) {
                 this->gameplayFrames++;
                 Rumble_SetUpdateEnabled(true);
                 Play_UpdateP2InputState(this);
+                Play_SendOotProbePacket(this);
 
                 if (this->actorCtx.freezeFlashTimer && (this->actorCtx.freezeFlashTimer-- < 5)) {
                     PRINTF("FINISH=%d\n", this->actorCtx.freezeFlashTimer);
