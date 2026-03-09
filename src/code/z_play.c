@@ -87,13 +87,18 @@ static void Play_SendOotProbePacket(PlayState* this);
 static ActorFunc sP2NativePlayerUpdate = NULL;
 
 #define OOT_PROBE_SRAM_ADDR OS_K1_TO_PHYSICAL(0xA8007A00)
-#define OOT_PROBE_PACKET_SIZE 0x20
+#define OOT_PROBE_PACKET_SIZE 32
 
 static void Play_WriteBe32(u8* dst, u32 value) {
     dst[0] = (u8)(value >> 24);
     dst[1] = (u8)(value >> 16);
     dst[2] = (u8)(value >> 8);
     dst[3] = (u8)value;
+}
+
+static void Play_WriteBe16(u8* dst, u16 value) {
+    dst[0] = (u8)(value >> 8);
+    dst[1] = (u8)value;
 }
 
 static u32 Play_FloatToU32(f32 value) {
@@ -108,6 +113,9 @@ static u32 Play_FloatToU32(f32 value) {
 
 static void Play_SendOotProbePacket(PlayState* this) {
     Player* player = GET_PLAYER(this);
+    Camera* cam = GET_ACTIVE_CAM(this);
+    Input* in = &this->state.input[0];
+    u8 levelByte;
     u8 packet[OOT_PROBE_PACKET_SIZE];
     u8 echoBuf[OOT_PROBE_PACKET_SIZE];
 
@@ -116,10 +124,31 @@ static void Play_SendOotProbePacket(PlayState* this) {
     }
 
     bzero(packet, sizeof(packet));
+    // Matches SM64 USB packet offsets except header bytes are "OOT".
     packet[0] = 'O';
     packet[1] = 'O';
     packet[2] = 'T';
+    packet[3] = 0xFF; // local player id
+
     Play_WriteBe32(&packet[4], Play_FloatToU32(player->actor.world.pos.x));
+    Play_WriteBe32(&packet[8], Play_FloatToU32(player->actor.world.pos.y));
+    Play_WriteBe32(&packet[12], Play_FloatToU32(player->actor.world.pos.z));
+
+    Play_WriteBe16(&packet[16], (u16)player->actor.shape.rot.x);
+    Play_WriteBe16(&packet[18], (u16)player->actor.shape.rot.y);
+    Play_WriteBe16(&packet[20], (u16)player->actor.shape.rot.z);
+    Play_WriteBe16(&packet[22], (u16)((cam != NULL) ? cam->camDir.y : 0));
+    Play_WriteBe16(&packet[24], (u16)in->cur.button);
+    packet[26] = (u8)in->cur.stick_x;
+    packet[27] = (u8)in->cur.stick_y;
+    levelByte = (u8)this->sceneId;
+    if (levelByte == 0) {
+        levelByte = (u8)(gSaveContext.save.entranceIndex & 0xFF);
+    }
+    packet[28] = levelByte;
+    packet[29] = 0;
+    packet[30] = 0;
+    packet[31] = 0;
 
     // Write packet via PI DMA, then issue a PI DMA read so emulator read-hook can intercept.
     SsSram_ReadWrite(OOT_PROBE_SRAM_ADDR, packet, OOT_PROBE_PACKET_SIZE, OS_WRITE);
