@@ -92,6 +92,7 @@ static ActorFunc sP2NativePlayerUpdate = NULL;
 #define OOT_PROBE_PACKET_SIZE 32
 #define OOT_PROBE_STALE_FRAMES 30
 #define OOT_PROBE_POS_MAX_ABS 30000.0f
+#define OOT_PROBE_IGNORE_LEVEL 1
 
 typedef struct OotProbeRemoteState {
     u8 valid;
@@ -285,10 +286,14 @@ static void Play_ReceiveOotProbePacket(PlayState* this) {
     }
 
     localLevel = Play_GetLocalLevelByte(this);
+#if !OOT_PROBE_IGNORE_LEVEL
     if (sOotRemoteState.level != localLevel) {
         Play_ApplyRemoteInputToP2(this, 0, 0, 0);
         return;
     }
+#else
+    (void)localLevel;
+#endif
 
     Play_ApplyRemoteInputToP2(this, sOotRemoteState.buttons, sOotRemoteState.stickX, sOotRemoteState.stickY);
 
@@ -340,7 +345,7 @@ static void Play_SyncP2StateFromP1(Player* p2Player, PlayState* play) {
         return;
     }
 
-    if (LOCAL_PLAYER) {
+    if (LOCAL_PLAYER || NETWORK_PLAYER) {
         //I think this is all of them
         //no idea how to do the horse lmao
         p2Player->currentTunic = p1Player->currentTunic;
@@ -354,9 +359,6 @@ static void Play_SyncP2StateFromP1(Player* p2Player, PlayState* play) {
         p2Player->modelGroup = p1Player->modelGroup;
         p2Player->nextModelGroup = p1Player->nextModelGroup;
         p2Player->currentMask = p1Player->currentMask;
-    } else if (NETWORK_PLAYER) {
-        //put incoming inventory state packet application here
-        //.. probably
     }
 }
 
