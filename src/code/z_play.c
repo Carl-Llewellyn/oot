@@ -75,8 +75,8 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 #endif
 
 Input* D_8012D1F8 = NULL;
-s32 LOCAL_PLAYER = true;
-s32 NETWORK_PLAYER = false;
+s32 LOCAL_PLAYER = false;
+s32 NETWORK_PLAYER = true;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
@@ -84,10 +84,34 @@ static void Play_UpdateP2InputState(PlayState* this);
 static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play);
 static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play);
 static void Play_SendOotProbePacket(PlayState* this);
+static void Play_ReceiveOotProbePacket(PlayState* this);
 static ActorFunc sP2NativePlayerUpdate = NULL;
 
 #define OOT_PROBE_SRAM_ADDR OS_K1_TO_PHYSICAL(0xA8007A00)
+#define OOT_PROBE_IN_SRAM_ADDR OS_K1_TO_PHYSICAL(0xA8007A20)
 #define OOT_PROBE_PACKET_SIZE 32
+#define OOT_PROBE_STALE_FRAMES 30
+#define OOT_PROBE_POS_MAX_ABS 30000.0f
+
+typedef struct OotProbeRemoteState {
+    u8 valid;
+    u8 hasTransform;
+    u8 playerId;
+    u16 buttons;
+    s8 stickX;
+    s8 stickY;
+    f32 x;
+    f32 y;
+    f32 z;
+    s16 pitch;
+    s16 yaw;
+    s16 roll;
+    s16 camYaw;
+    u8 level;
+    u32 lastSeenFrame;
+} OotProbeRemoteState;
+
+static OotProbeRemoteState sOotRemoteState;
 
 static void Play_WriteBe32(u8* dst, u32 value) {
     dst[0] = (u8)(value >> 24);
@@ -111,11 +135,66 @@ static u32 Play_FloatToU32(f32 value) {
     return conv.u;
 }
 
+static f32 Play_U32ToFloat(u32 value) {
+    union {
+        f32 f;
+        u32 u;
+    } conv;
+
+    conv.u = value;
+    return conv.f;
+}
+
+static u32 Play_ReadBe32(const u8* src) {
+    return (((u32)src[0]) << 24) | (((u32)src[1]) << 16) | (((u32)src[2]) << 8) | (u32)src[3];
+}
+
+static u16 Play_ReadBe16(const u8* src) {
+    return (u16)((src[0] << 8) | src[1]);
+}
+
+static s32 Play_IsValidRemotePos(f32 x, f32 y, f32 z) {
+    if ((x != x) || (y != y) || (z != z)) {
+        return false;
+    }
+    if ((x < -OOT_PROBE_POS_MAX_ABS) || (x > OOT_PROBE_POS_MAX_ABS)) {
+        return false;
+    }
+    if ((y < -OOT_PROBE_POS_MAX_ABS) || (y > OOT_PROBE_POS_MAX_ABS)) {
+        return false;
+    }
+    if ((z < -OOT_PROBE_POS_MAX_ABS) || (z > OOT_PROBE_POS_MAX_ABS)) {
+        return false;
+    }
+    return true;
+}
+
+static u8 Play_GetLocalLevelByte(PlayState* this) {
+    u8 levelByte = (u8)this->sceneId;
+    if (levelByte == 0) {
+        levelByte = (u8)(gSaveContext.save.entranceIndex & 0xFF);
+    }
+    return levelByte;
+}
+
+static void Play_ApplyRemoteInputToP2(PlayState* this, u16 buttons, s8 stickX, s8 stickY) {
+    Input* p2Input = &this->p2Input;
+
+    p2Input->prev = p2Input->cur;
+    p2Input->cur.button = buttons;
+    p2Input->cur.stick_x = stickX;
+    p2Input->cur.stick_y = stickY;
+    p2Input->press.button = p2Input->cur.button & (p2Input->cur.button ^ p2Input->prev.button);
+    p2Input->rel.button = p2Input->prev.button & (p2Input->cur.button ^ p2Input->prev.button);
+    p2Input->press.stick_x = p2Input->cur.stick_x - p2Input->prev.stick_x;
+    p2Input->press.stick_y = p2Input->cur.stick_y - p2Input->prev.stick_y;
+    PadUtils_UpdateRelXY(p2Input);
+}
+
 static void Play_SendOotProbePacket(PlayState* this) {
     Player* player = GET_PLAYER(this);
     Camera* cam = GET_ACTIVE_CAM(this);
     Input* in = &this->state.input[0];
-    u8 levelByte;
     u8 packet[OOT_PROBE_PACKET_SIZE];
     u8 echoBuf[OOT_PROBE_PACKET_SIZE];
 
@@ -141,11 +220,7 @@ static void Play_SendOotProbePacket(PlayState* this) {
     Play_WriteBe16(&packet[24], (u16)in->cur.button);
     packet[26] = (u8)in->cur.stick_x;
     packet[27] = (u8)in->cur.stick_y;
-    levelByte = (u8)this->sceneId;
-    if (levelByte == 0) {
-        levelByte = (u8)(gSaveContext.save.entranceIndex & 0xFF);
-    }
-    packet[28] = levelByte;
+    packet[28] = Play_GetLocalLevelByte(this);
     packet[29] = 0;
     packet[30] = 0;
     packet[31] = 0;
@@ -153,6 +228,83 @@ static void Play_SendOotProbePacket(PlayState* this) {
     // Write packet via PI DMA, then issue a PI DMA read so emulator read-hook can intercept.
     SsSram_ReadWrite(OOT_PROBE_SRAM_ADDR, packet, OOT_PROBE_PACKET_SIZE, OS_WRITE);
     SsSram_ReadWrite(OOT_PROBE_SRAM_ADDR, echoBuf, OOT_PROBE_PACKET_SIZE, OS_READ);
+}
+
+static void Play_ReceiveOotProbePacket(PlayState* this) {
+    Actor* p2DummyActor;
+    u32 age;
+    u8 localLevel;
+    u8 packet[OOT_PROBE_PACKET_SIZE];
+
+    SsSram_ReadWrite(OOT_PROBE_IN_SRAM_ADDR, packet, OOT_PROBE_PACKET_SIZE, OS_READ);
+
+    if ((packet[0] == 'O') && (packet[1] == 'O') && (packet[2] == 'T') && (packet[3] != 0xFF)) {
+        u32 xBits = Play_ReadBe32(&packet[4]);
+        u32 yBits = Play_ReadBe32(&packet[8]);
+        u32 zBits = Play_ReadBe32(&packet[12]);
+        s16 pitch = (s16)Play_ReadBe16(&packet[16]);
+        s16 yaw = (s16)Play_ReadBe16(&packet[18]);
+        s16 roll = (s16)Play_ReadBe16(&packet[20]);
+        f32 x = Play_U32ToFloat(Play_ReadBe32(&packet[4]));
+        f32 y = Play_U32ToFloat(Play_ReadBe32(&packet[8]));
+        f32 z = Play_U32ToFloat(Play_ReadBe32(&packet[12]));
+
+        if (Play_IsValidRemotePos(x, y, z)) {
+            sOotRemoteState.valid = true;
+            sOotRemoteState.hasTransform = (xBits != 0) || (yBits != 0) || (zBits != 0) || (pitch != 0) ||
+                                           (yaw != 0) || (roll != 0);
+            sOotRemoteState.playerId = packet[3];
+            sOotRemoteState.x = x;
+            sOotRemoteState.y = y;
+            sOotRemoteState.z = z;
+            sOotRemoteState.pitch = pitch;
+            sOotRemoteState.yaw = yaw;
+            sOotRemoteState.roll = roll;
+            sOotRemoteState.camYaw = (s16)Play_ReadBe16(&packet[22]);
+            sOotRemoteState.buttons = Play_ReadBe16(&packet[24]);
+            sOotRemoteState.stickX = (s8)packet[26];
+            sOotRemoteState.stickY = (s8)packet[27];
+            sOotRemoteState.level = packet[28];
+            sOotRemoteState.lastSeenFrame = this->gameplayFrames;
+        }
+    }
+
+    if (!NETWORK_PLAYER) {
+        return;
+    }
+    if (!sOotRemoteState.valid) {
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        return;
+    }
+
+    age = this->gameplayFrames - sOotRemoteState.lastSeenFrame;
+    if (age > OOT_PROBE_STALE_FRAMES) {
+        sOotRemoteState.valid = false;
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        return;
+    }
+
+    localLevel = Play_GetLocalLevelByte(this);
+    if (sOotRemoteState.level != localLevel) {
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        return;
+    }
+
+    Play_ApplyRemoteInputToP2(this, sOotRemoteState.buttons, sOotRemoteState.stickX, sOotRemoteState.stickY);
+
+    p2DummyActor = this->p2DummyActor;
+    if ((p2DummyActor != NULL) && sOotRemoteState.hasTransform) {
+        p2DummyActor->prevPos = p2DummyActor->world.pos;
+        p2DummyActor->world.pos.x = sOotRemoteState.x;
+        p2DummyActor->world.pos.y = sOotRemoteState.y;
+        p2DummyActor->world.pos.z = sOotRemoteState.z;
+        p2DummyActor->world.rot.x = sOotRemoteState.pitch;
+        p2DummyActor->world.rot.y = sOotRemoteState.yaw;
+        p2DummyActor->world.rot.z = sOotRemoteState.roll;
+        p2DummyActor->shape.rot.x = sOotRemoteState.pitch;
+        p2DummyActor->shape.rot.y = sOotRemoteState.yaw;
+        p2DummyActor->shape.rot.z = sOotRemoteState.roll;
+    }
 }
 
 // This macro prints the number "1" with a file and line number if R_ENABLE_PLAY_LOGS is enabled.
@@ -1154,6 +1306,7 @@ void Play_Update(PlayState* this) {
                 this->gameplayFrames++;
                 Rumble_SetUpdateEnabled(true);
                 Play_UpdateP2InputState(this);
+                Play_ReceiveOotProbePacket(this);
                 Play_SendOotProbePacket(this);
 
                 if (this->actorCtx.freezeFlashTimer && (this->actorCtx.freezeFlashTimer-- < 5)) {
