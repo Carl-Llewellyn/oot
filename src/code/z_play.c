@@ -50,6 +50,7 @@
 #include "play_state.h"
 #include "player.h"
 #include "save.h"
+#include "usb.h"
 #include "vis.h"
 
 #include "assets/objects/gameplay_keep/player_anim_headers.h"
@@ -74,8 +75,8 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 #endif
 
 Input* D_8012D1F8 = NULL;
-s32 LOCAL_PLAYER = true;
-s32 NETWORK_PLAYER = false;
+s32 LOCAL_PLAYER = false;
+s32 NETWORK_PLAYER = true;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
@@ -201,7 +202,11 @@ static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player) {
 }
 
 static void Play_UpdateP2InputState(PlayState* this) {
-    this->p2Input = this->state.input[1];
+    if (NETWORK_PLAYER) {
+        usb_update(this);
+    } else {
+        this->p2Input = this->state.input[1];
+    }
 }
 
 /**
@@ -1257,6 +1262,7 @@ void Play_DrawOverlayElements(PlayState* this) {
     if (this->gameOverCtx.state != GAMEOVER_INACTIVE) {
         GameOver_FadeInLights(this);
     }
+
 }
 
 void Play_Draw(PlayState* this) {
@@ -1520,7 +1526,6 @@ void Play_Draw(PlayState* this) {
     }
 
 Play_Draw_skip:
-
     if (this->view.unk_124 != 0) {
         Camera_Update(GET_ACTIVE_CAM(this));
         View_UpdateViewingMatrix(&this->view);

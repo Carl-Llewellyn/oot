@@ -29,21 +29,7 @@ s32 __osEPiRawReadIo(OSPiHandle* handle, u32 devAddr, u32* data) {
                 IO_WRITE(PI_BSD_DOM1_PWD_REG, handle->pulse);
             }
         } else {
-            if (curHandle->latency != handle->latency) {
-                IO_WRITE(PI_BSD_DOM2_LAT_REG, handle->latency);
-            }
-
-            if (curHandle->pageSize != handle->pageSize) {
-                IO_WRITE(PI_BSD_DOM2_PGS_REG, handle->pageSize);
-            }
-
-            if (curHandle->relDuration != handle->relDuration) {
-                IO_WRITE(PI_BSD_DOM2_RLS_REG, handle->relDuration);
-            }
-
-            if (curHandle->pulse != handle->pulse) {
-                IO_WRITE(PI_BSD_DOM2_PWD_REG, handle->pulse);
-            }
+            /* Intentionally skip Domain2 timing register rewrites. */
         }
 
         curHandle->type = handle->type;

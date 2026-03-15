@@ -31,6 +31,7 @@
 #include "game.h"
 #include "play_state.h"
 #include "vis.h"
+#include "usb.h"
 
 #pragma increment_block_number "gc-eu:0 gc-eu-mq:0 gc-jp:0 gc-jp-ce:0 gc-jp-mq:0 gc-us:0 gc-us-mq:0"
 
@@ -222,6 +223,38 @@ void GameState_Draw(GameState* gameState, GraphicsContext* gfxCtx) {
         GfxPrint_Destroy(&printer);
     }
 #endif
+
+    {
+        GfxPrint printer;
+
+        GfxPrint_Init(&printer);
+        GfxPrint_Open(&printer, newDList);
+        GfxPrint_SetPos(&printer, 1, 1);
+        GfxPrint_SetColor(&printer, 255, 255, 255, 255);
+        GfxPrint_Printf(&printer, "%s", "version: 1k");
+        if (!gUsbIncomingDebug.hasPacket) {
+            GfxPrint_SetPos(&printer, 1, 2);
+            GfxPrint_Printf(&printer, "%s", "usb rx: no packet");
+        } else {
+            GfxPrint_SetPos(&printer, 1, 2);
+            GfxPrint_Printf(&printer, "usb rx ok:%d f:%d", gUsbIncomingDebug.passesHeaderChecks,
+                            (s32)gUsbIncomingDebug.frameSeen);
+            GfxPrint_SetPos(&printer, 1, 3);
+            GfxPrint_Printf(&printer, "hdr:%02x %02x v:%d p:%d", gUsbIncomingDebug.sync0, gUsbIncomingDebug.sync1,
+                            gUsbIncomingDebug.version, gUsbIncomingDebug.playerId);
+            GfxPrint_SetPos(&printer, 1, 4);
+            GfxPrint_Printf(&printer, "x:%08x y:%08x z:%08x", gUsbIncomingDebug.xRaw, gUsbIncomingDebug.yRaw,
+                            gUsbIncomingDebug.zRaw);
+            GfxPrint_SetPos(&printer, 1, 5);
+            GfxPrint_Printf(&printer, "p:%d y:%d r:%d c:%d", gUsbIncomingDebug.pitch, gUsbIncomingDebug.yaw,
+                            gUsbIncomingDebug.roll, gUsbIncomingDebug.camYaw);
+            GfxPrint_SetPos(&printer, 1, 6);
+            GfxPrint_Printf(&printer, "b:%04x sx:%d sy:%d l:%d", gUsbIncomingDebug.buttons, gUsbIncomingDebug.stickX,
+                            gUsbIncomingDebug.stickY, gUsbIncomingDebug.level);
+        }
+        newDList = GfxPrint_Close(&printer);
+        GfxPrint_Destroy(&printer);
+    }
 
     if (R_ENABLE_ARENA_DBG < 0) {
 #if PLATFORM_GC && DEBUG_FEATURES
