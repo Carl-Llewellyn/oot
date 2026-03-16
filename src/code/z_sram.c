@@ -139,13 +139,13 @@ static Inventory sNewSaveInventory = {
     // items
     {
         ITEM_NONE, // SLOT_DEKU_STICK
-        ITEM_NONE, // SLOT_DEKU_NUT
-        ITEM_NONE, // SLOT_BOMB
+        ITEM_DEKU_NUT, // SLOT_DEKU_NUT
+        ITEM_BOMB, // SLOT_BOMB
         ITEM_NONE, // SLOT_BOW
         ITEM_NONE, // SLOT_ARROW_FIRE
         ITEM_NONE, // SLOT_DINS_FIRE
-        ITEM_NONE, // SLOT_SLINGSHOT
-        ITEM_NONE, // SLOT_OCARINA
+        ITEM_SLINGSHOT, // SLOT_SLINGSHOT
+        ITEM_OCARINA_FAIRY, // SLOT_OCARINA
         ITEM_NONE, // SLOT_BOMBCHU
         ITEM_NONE, // SLOT_HOOKSHOT
         ITEM_NONE, // SLOT_ARROW_ICE
@@ -161,17 +161,17 @@ static Inventory sNewSaveInventory = {
         ITEM_NONE, // SLOT_BOTTLE_3
         ITEM_NONE, // SLOT_BOTTLE_4
         ITEM_NONE, // SLOT_TRADE_ADULT
-        ITEM_NONE, // SLOT_TRADE_CHILD
+        ITEM_ZELDAS_LETTER, // SLOT_TRADE_CHILD
     },
     // ammo
     {
         0, // SLOT_DEKU_STICK
-        0, // SLOT_DEKU_NUT
-        0, // SLOT_BOMB
+        10, // SLOT_DEKU_NUT
+        10, // SLOT_BOMB
         0, // SLOT_BOW
         0, // SLOT_ARROW_FIRE
         0, // SLOT_DINS_FIRE
-        0, // SLOT_SLINGSHOT
+        30, // SLOT_SLINGSHOT
         0, // SLOT_OCARINA
         0, // SLOT_BOMBCHU
         0, // SLOT_HOOKSHOT
@@ -183,10 +183,12 @@ static Inventory sNewSaveInventory = {
         0, // SLOT_HAMMER
     },
     // equipment
-    (((1 << EQUIP_INV_TUNIC_KOKIRI) << (EQUIP_TYPE_TUNIC * 4)) |
+    (((1 << EQUIP_INV_SWORD_KOKIRI) << (EQUIP_TYPE_SWORD * 4)) |
+     ((1 << EQUIP_INV_SHIELD_DEKU) << (EQUIP_TYPE_SHIELD * 4)) |
+     ((1 << EQUIP_INV_TUNIC_KOKIRI) << (EQUIP_TYPE_TUNIC * 4)) |
      ((1 << EQUIP_INV_BOOTS_KOKIRI) << (EQUIP_TYPE_BOOTS * 4))),
-    0,                                                              // upgrades
-    0,                                                              // questItems
+    ((1 << 20) | (1 << 14) | (1 << 3)),                             // upgrades (UPG_DEKU_NUTS level 1, UPG_BULLET_BAG level 1, UPG_BOMB_BAG level 1)
+    ((1 << QUEST_KOKIRI_EMERALD) | (1 << QUEST_SONG_LULLABY)),      // questItems
     { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // dungeonItems
     {
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -200,7 +202,7 @@ static Checksum sNewSaveChecksum = { 0 };
 
 /**
  *  Initialize new save.
- *  This save has an empty inventory with 3 hearts and single magic.
+ *  This save starts with 3 hearts, single magic, and configured starting inventory.
  */
 void Sram_InitNewSave(void) {
     bzero(&gSaveContext.save.info, sizeof(SaveInfo));
@@ -219,6 +221,11 @@ void Sram_InitNewSave(void) {
     gSaveContext.save.info.horseData.angle = -0x6AD9;
     gSaveContext.save.info.playerData.magicLevel = 0;
     gSaveContext.save.info.infTable[INFTABLE_INDEX_1DX] = 1;
+    // Skip first Lost Woods bridge ocarina cutscene and first Hyrule Field intro/owl cutscene on new files.
+    SET_EVENTCHKINF(EVENTCHKINF_C1);
+    SET_EVENTCHKINF(EVENTCHKINF_A0);
+    // Skip first Hyrule Field owl talk ("Finally, you're leaving the forest...") by pre-setting its switch flag.
+    gSaveContext.save.info.sceneFlags[SCENE_HYRULE_FIELD].swch |= (1 << 12);
     gSaveContext.save.info.sceneFlags[SCENE_WATER_TEMPLE].swch = 0x40000000;
 }
 
@@ -509,14 +516,10 @@ void Sram_OpenSave(SramContext* sramCtx) {
             break;
 
         default:
-            if (gSaveContext.save.info.playerData.savedSceneId != SCENE_LINKS_HOUSE) {
-                if (LINK_AGE_IN_YEARS == YEARS_CHILD) {
-                    gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
-                } else {
-                    gSaveContext.save.entranceIndex = ENTR_TEMPLE_OF_TIME_7;
-                }
+            if (LINK_AGE_IN_YEARS == YEARS_CHILD) {
+                gSaveContext.save.entranceIndex = ENTR_ZORAS_RIVER_0;
             } else {
-                gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
+                gSaveContext.save.entranceIndex = ENTR_TEMPLE_OF_TIME_7;
             }
             break;
     }
@@ -856,7 +859,7 @@ void Sram_InitSave(FileSelectState* fileSelect, SramContext* sramCtx) {
     Sram_InitNewSave();
 #endif
 
-    gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
+    gSaveContext.save.entranceIndex = ENTR_ZORAS_RIVER_0;
     gSaveContext.save.linkAge = LINK_AGE_CHILD;
     gSaveContext.save.dayTime = CLOCK_TIME(10, 0);
     gSaveContext.save.cutsceneIndex = CS_INDEX_1;

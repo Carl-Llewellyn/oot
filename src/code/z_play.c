@@ -153,9 +153,10 @@ static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
     p2InputRouted = play->p2Input;
     Play_SyncP2StateFromP1(p2Player, play);
 
-    //Keep P1 as owner of camera/UI style controls while still giving P2 full movement/action simulation.
-    p2InputRouted.cur.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_R | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
-    p2InputRouted.press.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_R | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
+    // Keep P1 as owner of camera/UI style controls while still giving P2 full movement/action simulation.
+    // Do not strip BTN_R so P2 can shield.
+    p2InputRouted.cur.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
+    p2InputRouted.press.button &= ~(BTN_START | BTN_Z | BTN_L | BTN_DUP | BTN_DDOWN | BTN_DLEFT | BTN_DRIGHT);
 
     inputBackup = play->state.input[0];
     play->state.input[0] = p2InputRouted;
