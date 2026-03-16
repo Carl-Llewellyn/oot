@@ -6,6 +6,8 @@
 struct Actor;
 struct PlayState;
 
+extern s32 gP2PlayerUpdateActive;
+
 s16 OnePointCutscene_Init(struct PlayState* play, s16 csId, s16 timer, struct Actor* actor, s16 parentCamId);
 s16 OnePointCutscene_EndCutscene(struct PlayState* play, s16 subCamId);
 s32 OnePointCutscene_Attention(struct PlayState* play, struct Actor* actor);

@@ -77,6 +77,7 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 Input* D_8012D1F8 = NULL;
 s32 LOCAL_PLAYER = false;
 s32 NETWORK_PLAYER = true;
+s32 gP2PlayerUpdateActive = false;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
@@ -85,6 +86,7 @@ static void Play_P2PlayerPostSpawnSetup(Actor* thisx, PlayState* play);
 static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play);
 static void Play_SendOotProbePacket(PlayState* this);
 static void Play_ReceiveOotProbePacket(PlayState* this);
+static void Play_PostActorUpdateRemoteSnap(PlayState* this);
 static ActorFunc sP2NativePlayerUpdate = NULL;
 
 #define OOT_PROBE_SRAM_ADDR OS_K1_TO_PHYSICAL(0xA8007A00)
@@ -92,6 +94,8 @@ static ActorFunc sP2NativePlayerUpdate = NULL;
 #define OOT_PROBE_PACKET_SIZE 32
 #define OOT_PROBE_STALE_FRAMES 30
 #define OOT_PROBE_POS_MAX_ABS 30000.0f
+#define OOT_PROBE_POS_SNAP_THRESHOLD 60.0f
+#define OOT_PROBE_ROT_SNAP_THRESHOLD 0x200
 #define OOT_PROBE_IGNORE_LEVEL 1
 
 typedef struct OotProbeRemoteState {
@@ -178,8 +182,69 @@ static u8 Play_GetLocalLevelByte(PlayState* this) {
     return levelByte;
 }
 
-static void Play_ApplyRemoteInputToP2(PlayState* this, u16 buttons, s8 stickX, s8 stickY) {
+static s16 Play_AbsS16(s16 value) {
+    return (value < 0) ? (s16)-value : value;
+}
+
+static f32 Play_AbsF32(f32 value) {
+    return (value < 0.0f) ? -value : value;
+}
+
+static s8 Play_ClampS8(s32 value) {
+    if (value > 127) {
+        return 127;
+    }
+    if (value < -128) {
+        return -128;
+    }
+    return (s8)value;
+}
+
+static void Play_AdjustRemoteStickForCamera(PlayState* this, s16 remoteCamYaw, s8* inOutStickX, s8* inOutStickY) {
+    Camera* activeCam;
+    s16 localCamYaw;
+    s16 yawDelta;
+    f32 sinDelta;
+    f32 cosDelta;
+    f32 srcX;
+    f32 srcY;
+    f32 rotX;
+    f32 rotY;
+    s32 outX;
+    s32 outY;
+
+    if ((this == NULL) || (inOutStickX == NULL) || (inOutStickY == NULL)) {
+        return;
+    }
+
+    activeCam = GET_ACTIVE_CAM(this);
+    if (activeCam == NULL) {
+        return;
+    }
+
+    localCamYaw = Camera_GetInputDirYaw(activeCam);
+    yawDelta = (s16)(remoteCamYaw - localCamYaw);
+
+    sinDelta = Math_SinS(yawDelta);
+    cosDelta = Math_CosS(yawDelta);
+
+    srcX = *inOutStickX;
+    srcY = *inOutStickY;
+
+    rotX = (srcX * cosDelta) - (srcY * sinDelta);
+    rotY = (srcX * sinDelta) + (srcY * cosDelta);
+
+    outX = (s32)((rotX >= 0.0f) ? (rotX + 0.5f) : (rotX - 0.5f));
+    outY = (s32)((rotY >= 0.0f) ? (rotY + 0.5f) : (rotY - 0.5f));
+
+    *inOutStickX = Play_ClampS8(outX);
+    *inOutStickY = Play_ClampS8(outY);
+}
+
+static void Play_ApplyRemoteInputToP2(PlayState* this, u16 buttons, s8 stickX, s8 stickY, s16 remoteCamYaw) {
     Input* p2Input = &this->p2Input;
+
+    Play_AdjustRemoteStickForCamera(this, remoteCamYaw, &stickX, &stickY);
 
     p2Input->prev = p2Input->cur;
     p2Input->cur.button = buttons;
@@ -274,41 +339,107 @@ static void Play_ReceiveOotProbePacket(PlayState* this) {
         return;
     }
     if (!sOotRemoteState.valid) {
-        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0, 0);
         return;
     }
 
     age = this->gameplayFrames - sOotRemoteState.lastSeenFrame;
     if (age > OOT_PROBE_STALE_FRAMES) {
         sOotRemoteState.valid = false;
-        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0, 0);
         return;
     }
 
     localLevel = Play_GetLocalLevelByte(this);
 #if !OOT_PROBE_IGNORE_LEVEL
     if (sOotRemoteState.level != localLevel) {
-        Play_ApplyRemoteInputToP2(this, 0, 0, 0);
+        Play_ApplyRemoteInputToP2(this, 0, 0, 0, 0);
         return;
     }
 #else
     (void)localLevel;
 #endif
 
-    Play_ApplyRemoteInputToP2(this, sOotRemoteState.buttons, sOotRemoteState.stickX, sOotRemoteState.stickY);
+    Play_ApplyRemoteInputToP2(this, sOotRemoteState.buttons, sOotRemoteState.stickX, sOotRemoteState.stickY,
+                              sOotRemoteState.camYaw);
 
     p2DummyActor = this->p2DummyActor;
     if ((p2DummyActor != NULL) && sOotRemoteState.hasTransform) {
-        p2DummyActor->prevPos = p2DummyActor->world.pos;
+        f32 dx = sOotRemoteState.x - p2DummyActor->world.pos.x;
+        f32 dy = sOotRemoteState.y - p2DummyActor->world.pos.y;
+        f32 dz = sOotRemoteState.z - p2DummyActor->world.pos.z;
+        f32 dist2 = dx * dx + dy * dy + dz * dz;
+
+        if (dist2 > (OOT_PROBE_POS_SNAP_THRESHOLD * OOT_PROBE_POS_SNAP_THRESHOLD)) {
+            p2DummyActor->world.pos.x = sOotRemoteState.x;
+            p2DummyActor->world.pos.y = sOotRemoteState.y;
+            p2DummyActor->world.pos.z = sOotRemoteState.z;
+            p2DummyActor->prevPos = p2DummyActor->world.pos;
+            p2DummyActor->focus.pos = p2DummyActor->world.pos;
+            p2DummyActor->focus.pos.y += 30.0f;
+        }
+
+        if (Play_AbsS16((s16)(sOotRemoteState.pitch - p2DummyActor->shape.rot.x)) > OOT_PROBE_ROT_SNAP_THRESHOLD) {
+            p2DummyActor->shape.rot.x = sOotRemoteState.pitch;
+            p2DummyActor->world.rot.x = sOotRemoteState.pitch;
+        }
+        if (Play_AbsS16((s16)(sOotRemoteState.yaw - p2DummyActor->shape.rot.y)) > OOT_PROBE_ROT_SNAP_THRESHOLD) {
+            p2DummyActor->shape.rot.y = sOotRemoteState.yaw;
+            p2DummyActor->world.rot.y = sOotRemoteState.yaw;
+        }
+        if (Play_AbsS16((s16)(sOotRemoteState.roll - p2DummyActor->shape.rot.z)) > OOT_PROBE_ROT_SNAP_THRESHOLD) {
+            p2DummyActor->shape.rot.z = sOotRemoteState.roll;
+            p2DummyActor->world.rot.z = sOotRemoteState.roll;
+        }
+    }
+}
+
+static void Play_PostActorUpdateRemoteSnap(PlayState* this) {
+    Actor* p2DummyActor;
+    u32 age;
+    u8 localLevel;
+    f32 dx;
+    f32 dy;
+    f32 dz;
+
+    if ((this == NULL) || !NETWORK_PLAYER) {
+        return;
+    }
+    if (!sOotRemoteState.valid || !sOotRemoteState.hasTransform) {
+        return;
+    }
+
+    age = this->gameplayFrames - sOotRemoteState.lastSeenFrame;
+    if (age > OOT_PROBE_STALE_FRAMES) {
+        return;
+    }
+
+    localLevel = Play_GetLocalLevelByte(this);
+#if !OOT_PROBE_IGNORE_LEVEL
+    if (sOotRemoteState.level != localLevel) {
+        return;
+    }
+#else
+    (void)localLevel;
+#endif
+
+    p2DummyActor = this->p2DummyActor;
+    if (p2DummyActor == NULL) {
+        return;
+    }
+
+    dx = sOotRemoteState.x - p2DummyActor->world.pos.x;
+    dy = sOotRemoteState.y - p2DummyActor->world.pos.y;
+    dz = sOotRemoteState.z - p2DummyActor->world.pos.z;
+
+    if ((Play_AbsF32(dx) > OOT_PROBE_POS_SNAP_THRESHOLD) || (Play_AbsF32(dy) > OOT_PROBE_POS_SNAP_THRESHOLD) ||
+        (Play_AbsF32(dz) > OOT_PROBE_POS_SNAP_THRESHOLD)) {
         p2DummyActor->world.pos.x = sOotRemoteState.x;
         p2DummyActor->world.pos.y = sOotRemoteState.y;
         p2DummyActor->world.pos.z = sOotRemoteState.z;
-        p2DummyActor->world.rot.x = sOotRemoteState.pitch;
-        p2DummyActor->world.rot.y = sOotRemoteState.yaw;
-        p2DummyActor->world.rot.z = sOotRemoteState.roll;
-        p2DummyActor->shape.rot.x = sOotRemoteState.pitch;
-        p2DummyActor->shape.rot.y = sOotRemoteState.yaw;
-        p2DummyActor->shape.rot.z = sOotRemoteState.roll;
+        p2DummyActor->prevPos = p2DummyActor->world.pos;
+        p2DummyActor->focus.pos = p2DummyActor->world.pos;
+        p2DummyActor->focus.pos.y += 30.0f;
     }
 }
 
@@ -381,7 +512,9 @@ static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
 
     inputBackup = play->state.input[0];
     play->state.input[0] = p2InputRouted;
+    gP2PlayerUpdateActive = true;
     sP2NativePlayerUpdate(thisx, play);
+    gP2PlayerUpdateActive = false;
     play->state.input[0] = inputBackup;
 
     thisx->room = play->roomCtx.curRoom.num;
@@ -1351,6 +1484,7 @@ void Play_Update(PlayState* this) {
 
                     if (!this->haltAllActors) {
                         Actor_UpdateAll(this, &this->actorCtx);
+                        Play_PostActorUpdateRemoteSnap(this);
                     }
 
                     PLAY_LOG(3643);
