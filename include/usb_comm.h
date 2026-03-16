@@ -11,6 +11,7 @@ void usb_comm_init(void);
 void usb_comm_reset(void);
 void usb_comm_consume_bytes(struct PlayState* play, const u8* data, u32 len);
 void usb_comm_apply_remote_inputs(struct PlayState* play);
+void usb_comm_post_actor_update(struct PlayState* play);
 int usb_comm_get_remote_cam_yaw(u8 slot, s16* outYaw, struct PlayState* play);
 
 #endif

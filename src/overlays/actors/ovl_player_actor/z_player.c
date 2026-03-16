@@ -5922,6 +5922,10 @@ s32 func_8083AD4C(PlayState* play, Player* this) {
  * @return  true if a `csAction` is started, false if not
  */
 s32 Player_StartCsAction(PlayState* play, Player* this) {
+    if (this->actor.category != ACTORCAT_PLAYER) {
+        return false;
+    }
+
     // unk_6AD will get set to 3 in `Player_UpdateCommon` if `this->csAction` is non-zero
     // (with a special case for `PLAYER_CSACTION_7`)
     if (this->unk_6AD == 3) {
@@ -7604,6 +7608,10 @@ void func_8083F070(Player* this, LinkAnimationHeader* anim, PlayState* play) {
  * @return true if Player chooses to enter crawlspace
  */
 s32 Player_TryEnteringCrawlspace(Player* this, PlayState* play, u32 interactWallFlags) {
+    if (this->actor.category != ACTORCAT_PLAYER) {
+        return false;
+    }
+
     if (!LINK_IS_ADULT && !(this->stateFlags1 & PLAYER_STATE1_27) && (interactWallFlags & WALL_FLAG_CRAWLSPACE)) {
         CollisionPoly* wallPoly;
         Vec3f wallVertices[3];
@@ -7735,6 +7743,10 @@ s32 func_8083F524(PlayState* play, Player* this) {
  */
 s32 Player_TryLeavingCrawlspace(Player* this, PlayState* play) {
     s16 yawToWall;
+
+    if (this->actor.category != ACTORCAT_PLAYER) {
+        return false;
+    }
 
     if ((this->speedXZ != 0.0f) && (this->actor.bgCheckFlags & BGCHECKFLAG_WALL) &&
         (sTouchedWallFlags & WALL_FLAG_CRAWLSPACE)) {

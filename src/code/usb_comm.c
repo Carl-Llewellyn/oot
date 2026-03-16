@@ -3,9 +3,11 @@
 #include <string.h>
 
 #include "actor.h"
+#include "camera.h"
 #include "libu64/pad.h"
 #include "play_state.h"
 #include "sm64_usb_protocol.h"
+#include "z_lib.h"
 
 /* how long (in frames) a remote player's last packet stays valid. */
 #ifndef SM64_USB_STALE_FRAMES
@@ -33,7 +35,7 @@ static u8 sParseBuf[SM64_USB_PACKET_SIZE];
 static u32 sParseIndex = 0;
 
 #ifndef SM64_USB_POS_SNAP_THRESHOLD
-#define SM64_USB_POS_SNAP_THRESHOLD 600.0f
+#define SM64_USB_POS_SNAP_THRESHOLD 60.0f
 #endif
 
 #ifndef SM64_USB_POS_MAX_ABS
@@ -56,6 +58,10 @@ static f32 sm64usb_s32_to_f32(s32 v) {
 
 static s32 sm64usb_abs_s16(s16 v) {
     return (v < 0) ? -(s32)v : (s32)v;
+}
+
+static f32 sm64usb_abs_f32(f32 v) {
+    return (v < 0.0f) ? -v : v;
 }
 
 static s32 sm64usb_pos_valid(f32 x, f32 y, f32 z) {
@@ -83,6 +89,57 @@ static void sm64usb_memcpy(void* dst, const void* src, u32 n) {
     for (i = 0; i < n; i++) {
         d[i] = s[i];
     }
+}
+
+static s8 usb_comm_clamp_s8(s32 value) {
+    if (value > 127) {
+        return 127;
+    }
+    if (value < -128) {
+        return -128;
+    }
+    return (s8)value;
+}
+
+static void usb_comm_adjust_stick_for_camera(PlayState* play, s16 remoteCamYaw, s8* inOutStickX, s8* inOutStickY) {
+    Camera* activeCam;
+    s16 localCamYaw;
+    s16 yawDelta;
+    f32 sinDelta;
+    f32 cosDelta;
+    f32 srcX;
+    f32 srcY;
+    f32 rotX;
+    f32 rotY;
+    s32 outX;
+    s32 outY;
+
+    if (play == NULL || inOutStickX == NULL || inOutStickY == NULL) {
+        return;
+    }
+
+    activeCam = GET_ACTIVE_CAM(play);
+    if (activeCam == NULL) {
+        return;
+    }
+
+    localCamYaw = Camera_GetInputDirYaw(activeCam);
+    yawDelta = (s16)(remoteCamYaw - localCamYaw);
+
+    sinDelta = Math_SinS(yawDelta);
+    cosDelta = Math_CosS(yawDelta);
+
+    srcX = *inOutStickX;
+    srcY = *inOutStickY;
+
+    rotX = (srcX * cosDelta) - (srcY * sinDelta);
+    rotY = (srcX * sinDelta) + (srcY * cosDelta);
+
+    outX = (s32)((rotX >= 0.0f) ? (rotX + 0.5f) : (rotX - 0.5f));
+    outY = (s32)((rotY >= 0.0f) ? (rotY + 0.5f) : (rotY - 0.5f));
+
+    *inOutStickX = usb_comm_clamp_s8(outX);
+    *inOutStickY = usb_comm_clamp_s8(outY);
 }
 
 static void usb_comm_update_input(Input* input, u16 buttons, s8 stickX, s8 stickY) {
@@ -312,13 +369,19 @@ void usb_comm_apply_remote_inputs(PlayState* play) {
     }
 
     for (playerId = 0; playerId < SM64_USB_MAX_PLAYERS; playerId++) {
+        s8 remappedStickX;
+        s8 remappedStickY;
+
         if (!sRemoteStates[playerId].valid) {
             continue;
         }
 
+        remappedStickX = sRemoteStates[playerId].stick_x;
+        remappedStickY = sRemoteStates[playerId].stick_y;
+        usb_comm_adjust_stick_for_camera(play, sRemoteStates[playerId].cam_yaw, &remappedStickX, &remappedStickY);
+
         /* Route the first valid remote state into P2 without scene/slot filtering. */
-        usb_comm_update_input(&play->p2Input, sRemoteStates[playerId].buttons, sRemoteStates[playerId].stick_x,
-                              sRemoteStates[playerId].stick_y);
+        usb_comm_update_input(&play->p2Input, sRemoteStates[playerId].buttons, remappedStickX, remappedStickY);
 #if SM64_USB_APPLY_REMOTE_POS
         usb_comm_apply_remote_position(play, &sRemoteStates[playerId]);
 #endif
@@ -328,5 +391,51 @@ void usb_comm_apply_remote_inputs(PlayState* play) {
 
     if (!appliedP2) {
         usb_comm_clear_input(&play->p2Input);
+    }
+}
+
+void usb_comm_post_actor_update(PlayState* play) {
+    u8 playerId;
+    Actor* p2Actor;
+    f32 x;
+    f32 y;
+    f32 z;
+    f32 thresh;
+
+    if (play == NULL) {
+        return;
+    }
+
+    p2Actor = play->p2DummyActor;
+    if (p2Actor == NULL) {
+        return;
+    }
+
+    thresh = SM64_USB_POS_SNAP_THRESHOLD;
+
+    for (playerId = 0; playerId < SM64_USB_MAX_PLAYERS; playerId++) {
+        if (!sRemoteStates[playerId].valid) {
+            continue;
+        }
+
+        x = sm64usb_s32_to_f32(sRemoteStates[playerId].x);
+        y = sm64usb_s32_to_f32(sRemoteStates[playerId].y);
+        z = sm64usb_s32_to_f32(sRemoteStates[playerId].z);
+
+        if (!sm64usb_pos_valid(x, y, z)) {
+            continue;
+        }
+
+        if ((sm64usb_abs_f32(x - p2Actor->world.pos.x) > thresh) || (sm64usb_abs_f32(y - p2Actor->world.pos.y) > thresh) ||
+            (sm64usb_abs_f32(z - p2Actor->world.pos.z) > thresh)) {
+            p2Actor->world.pos.x = x;
+            p2Actor->world.pos.y = y;
+            p2Actor->world.pos.z = z;
+            p2Actor->prevPos = p2Actor->world.pos;
+            p2Actor->focus.pos = p2Actor->world.pos;
+            p2Actor->focus.pos.y += 30.0f;
+        }
+
+        break;
     }
 }

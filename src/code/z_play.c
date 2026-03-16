@@ -51,6 +51,7 @@
 #include "player.h"
 #include "save.h"
 #include "usb.h"
+#include "usb_comm.h"
 #include "vis.h"
 
 #include "assets/objects/gameplay_keep/player_anim_headers.h"
@@ -77,6 +78,7 @@ UNK_TYPE D_8012D1F4 = 0; // unused
 Input* D_8012D1F8 = NULL;
 s32 LOCAL_PLAYER = false;
 s32 NETWORK_PLAYER = true;
+s32 gP2PlayerUpdateActive = false;
 
 void Play_SpawnScene(PlayState* this, s32 sceneId, s32 spawn);
 static Actor* Play_SpawnP2Dummy(PlayState* this, Player* player);
@@ -157,7 +159,9 @@ static void Play_P2PlayerUpdate(Actor* thisx, PlayState* play) {
 
     inputBackup = play->state.input[0];
     play->state.input[0] = p2InputRouted;
+    gP2PlayerUpdateActive = true;
     sP2NativePlayerUpdate(thisx, play);
+    gP2PlayerUpdateActive = false;
     play->state.input[0] = inputBackup;
 
     thisx->room = play->roomCtx.curRoom.num;
@@ -1129,6 +1133,7 @@ void Play_Update(PlayState* this) {
 
                     if (!this->haltAllActors) {
                         Actor_UpdateAll(this, &this->actorCtx);
+                        usb_comm_post_actor_update(this);
                     }
 
                     PLAY_LOG(3643);
