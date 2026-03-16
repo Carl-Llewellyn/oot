@@ -224,6 +224,7 @@ void GameState_Draw(GameState* gameState, GraphicsContext* gfxCtx) {
     }
 #endif
 
+/*
     {
         GfxPrint printer;
 
@@ -255,7 +256,7 @@ void GameState_Draw(GameState* gameState, GraphicsContext* gfxCtx) {
         newDList = GfxPrint_Close(&printer);
         GfxPrint_Destroy(&printer);
     }
-
+*/
     if (R_ENABLE_ARENA_DBG < 0) {
 #if PLATFORM_GC && DEBUG_FEATURES
         s32 pad;

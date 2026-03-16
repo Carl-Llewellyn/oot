@@ -2748,7 +2748,7 @@ void Player_StartChangingHeldItem(Player* this, PlayState* play) {
 }
 
 void Player_UpdateItems(Player* this, PlayState* play) {
-    if ((this->actor.category == ACTORCAT_PLAYER) &&
+    if (((this->actor.category == ACTORCAT_PLAYER) || gP2PlayerUpdateActive) &&
 #if OOT_VERSION >= NTSC_1_1
         !(this->stateFlags1 & PLAYER_STATE1_START_CHANGING_HELD_ITEM) &&
 #endif

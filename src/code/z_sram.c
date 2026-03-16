@@ -515,13 +515,25 @@ void Sram_OpenSave(SramContext* sramCtx) {
             gSaveContext.save.entranceIndex = ENTR_GANONS_TOWER_0;
             break;
 
-        default:
+        /*default:   HERE IF YOU WANT TO CHANGE START SPAWN 
             if (LINK_AGE_IN_YEARS == YEARS_CHILD) {
-                gSaveContext.save.entranceIndex = ENTR_ZORAS_RIVER_0;
+                gSaveContext.save.entranceIndex = ENTR_L;
             } else {
                 gSaveContext.save.entranceIndex = ENTR_TEMPLE_OF_TIME_7;
             }
+            break;*/
+        default:
+            if (gSaveContext.save.info.playerData.savedSceneId != SCENE_LINKS_HOUSE) {
+                if (LINK_AGE_IN_YEARS == YEARS_CHILD) {
+                    gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
+                } else {
+                    gSaveContext.save.entranceIndex = ENTR_TEMPLE_OF_TIME_7;
+                }
+            } else {
+                gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
+            }
             break;
+    
     }
 
     PRINTF("scene_no = %d\n", gSaveContext.save.entranceIndex);
@@ -859,7 +871,7 @@ void Sram_InitSave(FileSelectState* fileSelect, SramContext* sramCtx) {
     Sram_InitNewSave();
 #endif
 
-    gSaveContext.save.entranceIndex = ENTR_ZORAS_RIVER_0;
+    gSaveContext.save.entranceIndex = ENTR_LINKS_HOUSE_0;
     gSaveContext.save.linkAge = LINK_AGE_CHILD;
     gSaveContext.save.dayTime = CLOCK_TIME(10, 0);
     gSaveContext.save.cutsceneIndex = CS_INDEX_1;
